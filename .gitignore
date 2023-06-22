@@ -1,0 +1,9 @@
+# General/scala
+**/target/
+*.bloop
+*.metals
+.bsp
+*metals.sbt
+build/
+coreProject/.js/
+coreProject/.jvm/
