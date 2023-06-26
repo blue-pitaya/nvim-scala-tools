@@ -9,17 +9,21 @@ import java.io.FileInputStream
 
 case class CursorPos(line: Int, col: Int)
 
-case class CaseClassDefn(name: String, fieldNames: List[String])
+case class CaseClassDefn(
+    name: String,
+    fieldNames: List[String],
+    sourcePath: String
+)
 
 object Parser {
 
   def parseFile(path: String): List[CaseClassDefn] = {
     val source = scala.io.Source.fromFile(path).mkString
-    parse(source)
+    parse(source, path)
   }
 
-  def parse(file: String): List[CaseClassDefn] = {
-    val tree = file.parse[Source].get
+  def parse(content: String, filePath: String): List[CaseClassDefn] = {
+    val tree = content.parse[Source].get
 
     val caseClassDefns = tree
       .collect { case c: Defn.Class =>
@@ -38,7 +42,7 @@ object Parser {
       val params = ctor.paramClauses.map(_.values).head
       val ps = params.map(p => p.name.value)
 
-      CaseClassDefn(name = name, fieldNames = ps)
+      CaseClassDefn(name = name, fieldNames = ps, sourcePath = filePath)
     }
   }
 
