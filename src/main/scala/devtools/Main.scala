@@ -16,6 +16,7 @@ import fs2.io.process.ProcessBuilder
 
 import java.io.PrintWriter
 import scala.io.Source
+import devtools.Cmd.GetActionsForLine
 
 case class Error(msg: String) extends Throwable {
   override def toString(): String = msg
@@ -30,13 +31,14 @@ sealed trait Cmd
 object Cmd {
   final case class GetCaseClassFields(name: String, filePath: String)
       extends Cmd
+  final case class GetActionsForLine(line: String, cursorPos: Int) extends Cmd
 
   def parse(value: String): Option[Cmd] = {
-    val words = value.split(" ").toList
+    val lines = value.split('\n').toList
 
-    words match {
-      case cmd :: param :: path :: Nil if cmd == "get_case_class_fields" =>
-        Some(GetCaseClassFields(param, path))
+    lines match {
+      case cmd :: line :: cursorPos :: Nil if cmd == "get_actions_for_line" =>
+        cursorPos.toIntOption.map(curPos => GetActionsForLine(line, curPos))
       case _ => None
     }
   }
@@ -61,7 +63,7 @@ object Main extends IOApp {
     cmdOpt match {
       case Some(cmd) => executeCmd(cmd, stateRef)
       // dont raise error, it's really not important
-      case None => IO.println("Error: unknown command.")
+      case None => IO.println("Error: unknown command. Raw command:\n" + cmdStr)
     }
   }
 
@@ -82,7 +84,25 @@ object Main extends IOApp {
             writeOutput(output)
         }
       } yield ()
+    case GetActionsForLine(line, cursorPos) => for {
+        _ <- IO.println("Executing cmd: get_actions_for_line")
+        state <- stateRef.get
+        actions = CmdService.getActionsForLine(line, cursorPos, state)
+        actionsResponse = getActionsResponse(actions)
+        output = "ok\n" + actionsResponse
+        _ <- IO.println("Response: \n" + output)
+        _ <- writeOutput(output)
+      } yield ()
   }
+
+  private def getActionsResponse(actions: List[Action]): String = actions
+    .map(a =>
+      a match {
+        case InsertCaseClassFields(caseClassName, replacedLine) =>
+          caseClassName + "\n" + replacedLine
+      }
+    )
+    .mkString("\n")
 
   def getCaseClassDefn(
       name: String,
@@ -110,7 +130,6 @@ object Main extends IOApp {
     Stream
       .repeatEval(IO(Source.fromFile(pipePath).iterator))
       .map(iter => iter.mkString)
-      .through(text.lines)
       .foreach(cb)
       .compile
       .drain
