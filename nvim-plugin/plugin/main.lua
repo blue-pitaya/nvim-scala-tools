@@ -19,9 +19,51 @@ local function recv()
   if pipe == nil then
     error("Error opening output pipe for write.")
   end
-  local resp = pipe:read()
+  local resp = pipe:read("*a")
   pipe:close()
   return resp
+end
+
+local function get_lines(str)
+  local lines = {}
+  for line in str:gmatch('[^\n]+') do
+    table.insert(lines, line)
+  end
+  return lines
+end
+
+local function pack_by_2(tab)
+  local res = {}
+  local fst = nil
+  local snd = nil
+  for _, v in ipairs(tab) do
+    if fst == nil then
+      fst = v
+      goto continue
+    end
+    if snd == nil then
+      snd = v
+    end
+    table.insert(res, {fst, snd})
+    fst = nil
+    snd = nil
+    ::continue::
+  end
+  return res
+end
+
+local function raw_response_to_actions(resp)
+  local lines = get_lines(resp)
+  if lines[1] ~= 'ok' then
+    error('!!!')
+  end
+  table.remove(lines, 1)
+  local packed = pack_by_2(lines)
+  local actions = {}
+  for _, v in ipairs(packed) do
+    table.insert(actions, {name = v[1], replaced_line = v[2]})
+  end
+  return actions
 end
 
 local function ask_for_actions()
@@ -31,7 +73,19 @@ local function ask_for_actions()
   local req = make_request(current_line, cursor_pos[2])
   send(req)
   local resp = recv()
-  print(vim.inspect(resp))
+  local actions = raw_response_to_actions(resp)
+  local options = {}
+  for _, v in ipairs(actions) do
+    table.insert(options, v)
+  end
+  vim.ui.select(options, {
+      prompt = 'Select case class to autocomplete:',
+      format_item = function(item)
+        return item.name
+      end,
+  }, function(choice)
+    vim.api.nvim_set_current_line(choice.replaced_line)
+  end)
 end
 
 
