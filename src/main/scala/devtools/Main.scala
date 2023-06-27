@@ -44,18 +44,18 @@ object Cmd {
   }
 }
 
-object Main extends IOApp {
+object Main {
 
   private val inputPipePath = "/tmp/nvim_scala_tools_pipe_in"
   private val outputPipePath = "/tmp/nvim_scala_tools_pipe_out"
 
-  override def run(args: List[String]): IO[ExitCode] = for {
-    stateRef <- Ref.of[IO, State](State.empty)
-    _ <- DefnBuilder.initialBuild(args, stateRef)
-    _ <- createNamedPipe(inputPipePath)
-    _ <- createNamedPipe(outputPipePath)
-    _ <- reciveCommands(inputPipePath, cmd => cmdCallback(cmd, stateRef))
-  } yield (ExitCode.Success)
+  // override def run(args: List[String]): IO[ExitCode] = for {
+  //  stateRef <- Ref.of[IO, State](State.empty)
+  //  _ <- DefnBuilder.initialBuild(args, stateRef)
+  //  _ <- createNamedPipe(inputPipePath)
+  //  _ <- createNamedPipe(outputPipePath)
+  //  _ <- reciveCommands(inputPipePath, cmd => cmdCallback(cmd, stateRef))
+  // } yield (ExitCode.Success)
 
   def cmdCallback(cmdStr: String, stateRef: Ref[IO, State]): IO[Unit] = {
     val cmdOpt = Cmd.parse(cmdStr)
