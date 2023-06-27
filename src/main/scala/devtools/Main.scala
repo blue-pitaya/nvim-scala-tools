@@ -3,6 +3,9 @@ package devtools
 import cats.effect.ExitCode
 import cats.effect.IO
 import cats.effect.IOApp
+import cats.effect.kernel.Ref
+import cats.effect.kernel.Resource
+import devtools.Cmd.GetCaseClassFields
 import fs2._
 import fs2.io.file.Files
 import fs2.io.file.Flags
@@ -11,9 +14,8 @@ import fs2.io.file.PosixPermission
 import fs2.io.file.PosixPermissions
 import fs2.io.process.ProcessBuilder
 
+import java.io.PrintWriter
 import scala.io.Source
-import cats.effect.kernel.Ref
-import devtools.Cmd.GetCaseClassFields
 
 case class Error(msg: String) extends Throwable {
   override def toString(): String = msg
@@ -42,13 +44,15 @@ object Cmd {
 
 object Main extends IOApp {
 
-  private val pipePath = "/tmp/scala-dev-tools-crack-pipe"
+  private val inputPipePath = "/tmp/nvim_scala_tools_pipe_in"
+  private val outputPipePath = "/tmp/nvim_scala_tools_pipe_out"
 
   override def run(args: List[String]): IO[ExitCode] = for {
     stateRef <- Ref.of[IO, State](State.empty)
     _ <- DefnBuilder.initialBuild(args, stateRef)
-    _ <- createNamedPipe
-    _ <- reciveCommands(pipePath, cmd => cmdCallback(cmd, stateRef))
+    _ <- createNamedPipe(inputPipePath)
+    _ <- createNamedPipe(outputPipePath)
+    _ <- reciveCommands(inputPipePath, cmd => cmdCallback(cmd, stateRef))
   } yield (ExitCode.Success)
 
   def cmdCallback(cmdStr: String, stateRef: Ref[IO, State]): IO[Unit] = {
@@ -61,6 +65,10 @@ object Main extends IOApp {
     }
   }
 
+  def writeOutput(v: String): IO[Unit] = Resource
+    .make(IO(new PrintWriter(outputPipePath)))(writer => IO(writer.close()))
+    .use(writer => IO(writer.write(v)))
+
   def executeCmd(cmd: Cmd, stateRef: Ref[IO, State]): IO[Unit] = cmd match {
     case GetCaseClassFields(name, filePath) => for {
         caseClassDefnOpt <- getCaseClassDefn(name, filePath, stateRef)
@@ -70,7 +78,8 @@ object Main extends IOApp {
             )
           case Some(defn) =>
             val fieldNames = defn.fieldNames.mkString(",")
-            IO.println(s"ok(${fieldNames})")
+            val output = s"ok(${fieldNames})"
+            writeOutput(output)
         }
       } yield ()
   }
@@ -85,15 +94,15 @@ object Main extends IOApp {
       state.caseClassDefns.find(v => v.name == name && v.sourcePath == filePath)
   } yield (defnOpt)
 
-  def createNamedPipe: IO[Unit] = for {
-    fileExists <- Files[IO].exists(Path(pipePath))
-    _ <- IO.whenA(!fileExists)(mkfifo)
+  def createNamedPipe(path: String): IO[Unit] = for {
+    fileExists <- Files[IO].exists(Path(path))
+    _ <- IO.whenA(!fileExists)(mkfifo(path))
   } yield ()
 
-  def mkfifo: IO[Unit] = for {
-    exitCode <- ProcessBuilder("mkfifo", pipePath).spawn[IO].use(_.exitValue)
+  def mkfifo(path: String): IO[Unit] = for {
+    exitCode <- ProcessBuilder("mkfifo", path).spawn[IO].use(_.exitValue)
     _ <- IO.raiseWhen(exitCode != 0)(
-      Error(s"Faile making named pipe in path ${pipePath}")
+      Error(s"Failed making named pipe in path ${path}")
     )
   } yield ()
 
